@@ -1,111 +1,161 @@
-
-import Time "mo:base/Time";
-import Buffer "mo:base/Buffer";
-import Bool "mo:base/Bool";
 import Text "mo:base/Text";
+import Blob "mo:base/Blob";
 import Int "mo:base/Int";
+import Principal "mo:base/Principal";
+import HashMap "mo:base/HashMap";
 import Nat "mo:base/Nat";
-import Result "mo:base/Result";
+import Nat32 "mo:base/Nat32";
+import Hash "mo:base/Hash";
 import Debug "mo:base/Debug";
-import Array "mo:base/Array";
+import Result "mo:base/Result";
+import Buffer "mo:base/Buffer";
+import Order "mo:base/Order";
 
 
 
+actor studentWall {
 
-  actor {
-//  type Result = {
-//   #ok: (Homework, ());
-//   #err: Text
-//  };
- type Time = Int;
- type Pattern = Text.Pattern;
- type Homework = {
-  title: Text;
-  description:Text;
-  dueDate: Time.Time;
-  completed: Bool;
- };
+  //define types
+   type Principal = Principal.Principal;
+   type Hash = Nat32;
 
-  var homeworkDiary = Buffer.Buffer<Homework>(2);
-
-  public func addHomework(h: Homework): async Nat{ 
-    homeworkDiary.add(h: Homework);
-    var i= homeworkDiary.size();
-    return i-1;
+  public type Content ={
+    #Text: Text;
+    #Image: Blob;
+    #Videp: Blob;
   };
 
-  public func getHomework(hId: Nat): async Result.Result<Homework, Text>{
+  public type Message = {
+    vote : Int;
+    content : Content;
+    creator : Principal;
+  };
+  // define variables
   
-    var hW: ?Homework = homeworkDiary.getOpt(hId);
-    switch(hW) {
-      case(?Homework) return #ok Homework; 
-      case(null) {#err "Incorrect homework Id not reachable"  };
+  var counterId: Nat = 0;
+
+  
+  let wall = HashMap.HashMap<Nat, Message>(0, Nat.equal, Hash.hash);
+
+
+
+  // add a new message
+  //writeMessage fn public 
+
+  public shared ({ caller })func writeMessage(c: Content): async Nat {
+    let messageToPost: Message = {
+      vote = 0;
+      content = c;
+      creator = caller;
     };
+    var messageId: Nat = counterId;
 
+    wall.put(messageId, messageToPost);
+    counterId += 1;
+      return messageId;
+  }; 
+  
+
+  // getMessage fn public query  ==> Result
+  public query func getMessage(messageId : Nat): async Result.Result<Message, Text>{
+    let s: Nat = wall.size();
+    let m: ?Message = wall.get(messageId);
+      switch(m){
+      case(null) #err("Invalid message Id");
+      case(?value) #ok(value);
+      }
   };
 
-  public func updateHomework (hId: Nat, hW: Homework): async Result.Result<(), Text> {
-      let s: Nat = homeworkDiary.size();
-      if(hId < s){
-        homeworkDiary.put(hId, hW);
-        return #ok ()}
-        else { return #err ("Not valid")};
- 
-  };
 
-  public func markAsCompleted (hId: Nat): async Result.Result<(),Text>{
-       let s: Nat = homeworkDiary.size();
-      if(hId < s){
-        let hToUpdate: Homework = homeworkDiary.get(hId);
-        let hToPut = { 
-          completed = true; 
-          description = hToUpdate.description; 
-          title = hToUpdate.title; 
-          dueDate = hToUpdate.dueDate 
-          };
-        homeworkDiary.put(hId, hToPut);
-        return #ok ()}
-        else { return #err ("Not valid IIIIID")};
-  };
 
-  public func deleteHomework(hId: Nat): async Result.Result<(), Text>{
-    let s: Nat = homeworkDiary.size();
-    if(hId < s){
-      let deleted: Homework = homeworkDiary.remove(hId);
-      return #ok ()
-    }
-    else #err("No deletion bad ID");
-  };
+  //updateMessage public fn
+  public shared ({ caller }) func updateMessage(messageId: Nat, c: Content): async Result.Result<(),Text>{
+    let messageToModify: ?Message = wall.get(messageId);
+  
+      switch(messageToModify){
+        case(?value){
+          if(Principal.equal(value.creator, caller)) {
+          let messageToUpdate: Message = {
+          vote = value.vote;
+          content = c;
+          creator = value.creator;
+            };
+            wall.put(messageId,messageToUpdate);
+            return #ok ();
+            }else #err ("Not creator");};
+        case(null)#err("not valid Id");
+      };
+   
 
-  public query func getAllHomework(): async [Homework]{
-    Buffer.toArray(homeworkDiary);
   };
- 
-  public query func getPendingHomework(): async [Homework]{
-    let homeworkDiaryArr =  Buffer.toArray(homeworkDiary); 
-     
-     func _checkIncomplete(el: Homework):Bool{
+  //deleteMessage public fn
+    public shared ({ caller }) func deleteMessage(messageId: Nat): async Result.Result<(),Text>{
+      let s:Nat = wall.size();
+      if(messageId < s){
+        wall.delete(messageId);
+        return #ok();
+      }else #err("Not a valid IIIID")
+    };
+  //upVote
+
+    public func upVote(messageId: Nat): async Result.Result<(),Text>{
+      let s: Nat = wall.size();
+      let messageToModify: ?Message = wall.get(messageId);
+      switch(messageToModify){
+        case(?value){
+          let messageToPost: Message = {
+          vote = value.vote + 1;
+          content = value.content;
+          creator = value.creator;
+        };
+        ignore wall.replace(messageId, messageToPost);
+        return #ok();
+        };
+        case(null) #err("invalid ID")
+        }
       
-        switch(el.completed){ 
-          case(false) true ;
-          case(true) false;
-         };
-        
-      };
-
-    let incompleteArr = Array.filter<Homework>(homeworkDiaryArr, _checkIncomplete);
-    
-    incompleteArr;
-};
-  public query func searchHomework(searchTerm:Text): async [Homework]{
-    let homeworkDiaryArr =  Buffer.toArray(homeworkDiary);
-    func _checkSearchTermTit(x: Homework):Bool{
-    let p: Pattern = #text (searchTerm);
-      switch(Text.contains(x.title, p)){
-        case(false)Text.contains(x.description, p);
-        case(true)true;
-        } 
-      };
-      Array.filter<Homework>(homeworkDiaryArr,_checkSearchTermTit);
     };
+
+  //downVote
+    public func downVote(messageId: Nat): async Result.Result<(),Text>{
+      let s: Nat = wall.size();
+      let messageToModify: ?Message = wall.get(messageId);
+      switch(messageToModify){
+        case(?value){
+        let messageToPost: Message = {
+          vote = value.vote -1;
+          content = value.content;
+          creator = value.creator;
+        };
+        ignore wall.replace(messageId, messageToPost);
+        return #ok();};
+        case(null)#err("Invaaa ID");
+        }
+     
+    };
+
+  //getAllMessages query
+  public query func getAllMessages(): async [Message]{
+    let s: Nat = wall.size();
+    let buffer = Buffer.Buffer<Message>(s);
+    for(msg in wall.vals()) buffer.add(msg);
+    Buffer.toArray(buffer);
+  };
+
+  //getAllMessagesRanked query p'ubli
+
+  public query func getAllMessagesRanked(): async [Message]{
+    let s: Nat = wall.size();
+    let buffer = Buffer.Buffer<Message>(s);
+    type Order = Order.Order;
+    
+    for( msg in wall.vals()) buffer.add(msg);
+    buffer.sort(func(x:Message,y:Message):Order{
+      if(x.vote > y.vote)return #less;
+      if(x.vote == y.vote){return #equal;} 
+      else return #greater;
+      });
+    Buffer.toArray(buffer);
+  }
+
   };
