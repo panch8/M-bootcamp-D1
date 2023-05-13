@@ -1,161 +1,126 @@
-import Text "mo:base/Text";
-import Blob "mo:base/Blob";
-import Int "mo:base/Int";
 import Principal "mo:base/Principal";
-import HashMap "mo:base/HashMap";
-import Nat "mo:base/Nat";
+import TrieMap "mo:base/TrieMap";
 import Nat32 "mo:base/Nat32";
-import Hash "mo:base/Hash";
-import Debug "mo:base/Debug";
+
+import Nat "mo:base/Nat";
+import Text "mo:base/Text";
+import Account "account";
+import Float "mo:base/Float";
 import Result "mo:base/Result";
-import Buffer "mo:base/Buffer";
-import Order "mo:base/Order";
+import Debug "mo:base/Debug";
+import Error "mo:base/Error";
+import Array "mo:base/Array";
+import Subaccount "account";
+import Option "mo:base/Option";
+import Iter "mo:base/Iter";
 
 
 
-actor studentWall {
 
-  //define types
-   type Principal = Principal.Principal;
-   type Hash = Nat32;
+actor motoCoin {
 
-  public type Content ={
-    #Text: Text;
-    #Image: Blob;
-    #Videp: Blob;
+  type Account = Account.Account;
+
+
+  var ledger = TrieMap.TrieMap<Account, Nat>(Account.equal, Account.hash);
+  var coin ={
+    name: Text = "MotoCoin";
+    symbol: Text = "MOC";
+    totalSupply: Nat = 1_000_000 ;
   };
 
-  public type Message = {
-    vote : Int;
-    content : Content;
-    creator : Principal;
+  // public func createAccount(principal: Principal): async Account {
+  //   let account: Account = {
+  //     owner = principal; 
+  //   }
+  // };
+      // Returns the name of the token 
+    // name : shared query () -> async Text;
+  public query func name(): async Text {
+    coin.name;
+  };  
+
+    // Returns the symbol of the token 
+    // symbol : shared query () -> async Text;
+  public query func symbol(): async Text {
+    coin.symbol;
   };
-  // define variables
-  
-  var counterId: Nat = 0;
+    // Returns the the total number of tokens on all accounts
+    // totalSupply : shared query () -> async Nat;
 
-  
-  let wall = HashMap.HashMap<Nat, Message>(0, Nat.equal, Hash.hash);
+  public query func totalSupply(): async Nat {
+    coin.totalSupply;
+  };
 
-
-
-  // add a new message
-  //writeMessage fn public 
-
-  public shared ({ caller })func writeMessage(c: Content): async Nat {
-    let messageToPost: Message = {
-      vote = 0;
-      content = c;
-      creator = caller;
+  public query func getAllBalances(): async [Nat]{
+    Iter.toArray(ledger.vals());
+  };
+    // Returns the balance of the account
+    // balanceOf : shared query (account : Account) -> async (Nat);
+  public query func balanceOf(account: Account): async Nat{
+    let balance: ?Nat = ledger.get(account);
+    switch(balance) {
+      case(null) 0;
+      case(?value)value;
     };
-    var messageId: Nat = counterId;
+  };  
 
-    wall.put(messageId, messageToPost);
-    counterId += 1;
-      return messageId;
-  }; 
-  
+    // Transfer tokens to another account
+    // transfer : shared (from: Account, to : Account, amount : Nat) -> async Result.Result<(), Text>;
 
-  // getMessage fn public query  ==> Result
-  public query func getMessage(messageId : Nat): async Result.Result<Message, Text>{
-    let s: Nat = wall.size();
-    let m: ?Message = wall.get(messageId);
-      switch(m){
-      case(null) #err("Invalid message Id");
-      case(?value) #ok(value);
-      }
-  };
-
-
-
-  //updateMessage public fn
-  public shared ({ caller }) func updateMessage(messageId: Nat, c: Content): async Result.Result<(),Text>{
-    let messageToModify: ?Message = wall.get(messageId);
-  
-      switch(messageToModify){
-        case(?value){
-          if(Principal.equal(value.creator, caller)) {
-          let messageToUpdate: Message = {
-          vote = value.vote;
-          content = c;
-          creator = value.creator;
+  public shared ({ caller }) func transfer(from: Account, to : Account, amount: Nat): async Result.Result<(), Text>{
+    if (Account.accountBelongsToPrincipal(from, caller)){
+      var balanceFrom: ?Nat = ledger.get(from);
+      var balanceTo: ?Nat = ledger.get(to);
+      switch(balanceFrom) {
+        case(null) throw Error.reject("Account not initialized. not exist.");
+        case(?value) {
+          if(value < amount) throw Error.reject("Not sufficient Balance")
+          else {
+            //quitar amount de from
+            switch(ledger.replace(from,(value - amount))){
+              case(null)throw Error.reject("Not an existing key:'from'");
+              case(?val) ignore val;
             };
-            wall.put(messageId,messageToUpdate);
-            return #ok ();
-            }else #err ("Not creator");};
-        case(null)#err("not valid Id");
+          };
+        };
       };
+      switch(balanceTo){
+        case(null){ledger.put(to, amount)};
+        case(?value){ledger.put(to,(value + amount) )}
+      };
+
+      #ok;
+
+    }
+    else {#err("Not your account")};
+
+
+  };
+    // Airdrop 100 MotoCoin to any student that is part of the Bootcamp.
+    // airdrop : shared () -> async Result.Result<(),Text>;
+      let studentCanister : actor {
+        getAllStudentsPrincipal : shared () -> async [Principal];
+      } = actor("rww3b-zqaaa-aaaam-abioa-cai") ;
    
+  // func _getAllStudents(): async [Principal]{
+  // };
+ 
+  public shared func airdrop(): async Result.Result<(), Text>{
 
-  };
-  //deleteMessage public fn
-    public shared ({ caller }) func deleteMessage(messageId: Nat): async Result.Result<(),Text>{
-      let s:Nat = wall.size();
-      if(messageId < s){
-        wall.delete(messageId);
-        return #ok();
-      }else #err("Not a valid IIIID")
-    };
-  //upVote
-
-    public func upVote(messageId: Nat): async Result.Result<(),Text>{
-      let s: Nat = wall.size();
-      let messageToModify: ?Message = wall.get(messageId);
-      switch(messageToModify){
-        case(?value){
-          let messageToPost: Message = {
-          vote = value.vote + 1;
-          content = value.content;
-          creator = value.creator;
-        };
-        ignore wall.replace(messageId, messageToPost);
-        return #ok();
-        };
-        case(null) #err("invalid ID")
-        }
-      
-    };
-
-  //downVote
-    public func downVote(messageId: Nat): async Result.Result<(),Text>{
-      let s: Nat = wall.size();
-      let messageToModify: ?Message = wall.get(messageId);
-      switch(messageToModify){
-        case(?value){
-        let messageToPost: Message = {
-          vote = value.vote -1;
-          content = value.content;
-          creator = value.creator;
-        };
-        ignore wall.replace(messageId, messageToPost);
-        return #ok();};
-        case(null)#err("Invaaa ID");
-        }
+    try{
+       let allStudents: [Principal] = await studentCanister.getAllStudentsPrincipal();
      
-    };
-
-  //getAllMessages query
-  public query func getAllMessages(): async [Message]{
-    let s: Nat = wall.size();
-    let buffer = Buffer.Buffer<Message>(s);
-    for(msg in wall.vals()) buffer.add(msg);
-    Buffer.toArray(buffer);
+      for(p in allStudents.vals()){
+      
+        let account: Account ={
+          owner = p;
+          subaccount = null;
+        };
+        let currentBalance = Option.get(ledger.get(account),0);
+        ledger.put(account, (currentBalance + 100));
+      };
+      #ok();
+    }catch(e){#err("smth go wrong")};
   };
-
-  //getAllMessagesRanked query p'ubli
-
-  public query func getAllMessagesRanked(): async [Message]{
-    let s: Nat = wall.size();
-    let buffer = Buffer.Buffer<Message>(s);
-    type Order = Order.Order;
-    
-    for( msg in wall.vals()) buffer.add(msg);
-    buffer.sort(func(x:Message,y:Message):Order{
-      if(x.vote > y.vote)return #less;
-      if(x.vote == y.vote){return #equal;} 
-      else return #greater;
-      });
-    Buffer.toArray(buffer);
-  }
-
-  };
+};
